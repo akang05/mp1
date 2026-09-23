@@ -46,7 +46,7 @@
 
   <div id="page-scoring" class="page">
     <section class="panel">
-      <h2>Points For vs. Points Against</h2>
+      <h2>Team Scored vs. Opponents Scored</h2>
       <p class="note">Game-by-game scoring across the season.</p>
       <div class="chartwrap"><canvas id="scoreChart"></canvas></div>
     </section>
@@ -82,7 +82,7 @@
       <p>This dashboard visualizes team-level season performance for women's NCAA basketball, built from game-by-game box score data.</p>
       <h3>What's in the data</h3>
       <ul>
-        <li><strong>Season summary</strong> — record, win rate, points for/against, shooting splits, rebounds, assists, turnovers, steals and blocks, each averaged per game.</li>
+        <li><strong>Season summary</strong> — record, win rate, points scored/opponents scored, shooting splits, rebounds, assists, turnovers, steals and blocks, each averaged per game.</li>
         <li><strong>Home/away record</strong> — wins and losses split by venue.</li>
         <li><strong>Game log</strong> — every game the selected team played that season, with date, opponent, score and result.</li>
       </ul>
@@ -142,8 +142,8 @@ function renderScoreChart(rec){
     data: {
       labels: rec.games_log.map(g=>g.date),
       datasets: [
-        { label:"Points for", data: rec.games_log.map(g=>g.pf), borderColor: colors.ball, backgroundColor:"rgba(232,100,27,.15)", fill:true, tension:.25 },
-        { label:"Points against", data: rec.games_log.map(g=>g.pa), borderColor: colors.muted, backgroundColor:"rgba(140,160,184,.08)", fill:true, tension:.25 }
+        { label:"Team Scored", data: rec.games_log.map(g=>g.pf), borderColor: colors.ball, backgroundColor:"rgba(232,100,27,.15)", fill:true, tension:.25 },
+        { label:"Opponents Scored", data: rec.games_log.map(g=>g.pa), borderColor: colors.muted, backgroundColor:"rgba(140,160,184,.08)", fill:true, tension:.25 }
       ]
     },
     options: {
