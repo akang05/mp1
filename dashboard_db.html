@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Team Season Performance</title>
+<style>
+:root{
+  --court:#0f1d2e; --card:#172943; --card2:#1e3252;
+  --ball:#e8641b; --hardwood:#c98a3d; --chalk:#edeae0; --muted:#8ca0b8; --line:rgba(237,234,224,.12);
+  --win:#3fb27f; --loss:#e2555a;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--court);color:var(--chalk);font-family:"Inter",system-ui,sans-serif;line-height:1.5}
+h1,h2{font-family:"Oswald","Inter",sans-serif;font-weight:600;margin:0}
+.wrap{max-width:1080px;margin:0 auto;padding:28px 20px 48px}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:20px}
+header h1{font-size:26px}
+.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.controls{display:flex;gap:12px;flex-wrap:wrap}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:11px;color:var(--muted)}
+select,input{background:var(--card2);color:var(--chalk);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:14px;min-width:160px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin:20px 0}
+.kpi{background:var(--card);border-radius:10px;padding:14px 16px;border-left:3px solid var(--ball)}
+.kpi .v{font-family:"IBM Plex Mono",monospace;font-size:22px}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:20px;margin-top:20px}
+.panel{background:var(--card);border-radius:12px;padding:18px}
+.panel h2{font-size:16px;margin-bottom:2px}
+.panel .note{color:var(--muted);font-size:12px;margin-bottom:12px}
+.chartwrap{position:relative;height:280px}
+.empty{color:var(--muted);text-align:center;padding:60px 0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase}
+.pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.pill.w{background:rgba(63,178,127,.18);color:var(--win)}
+.pill.l{background:rgba(226,85,90,.18);color:var(--loss)}
+.logscroll{max-height:280px;overflow-y:auto}
+@media(max-width:600px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Team Season Performance</h1>
+      <p class="sub">Women's NCAA basketball · box-score based team analytics</p>
+    </div>
+    <div class="controls">
+      <div class="field"><label for="season">Season</label><select id="season"></select></div>
+      <div class="field"><label for="team">Team</label><select id="team"></select></div>
+    </div>
+  </header>
+
+  <div id="kpis" class="kpis"></div>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>Points For vs. Points Against</h2>
+      <p class="note">Game-by-game scoring across the season.</p>
+      <div class="chartwrap"><canvas id="scoreChart"></canvas></div>
+    </section>
+    <section class="panel">
+      <h2>Shooting Splits</h2>
+      <p class="note">Season-average shooting percentage by shot type.</p>
+      <div class="chartwrap"><canvas id="shootChart"></canvas></div>
+    </section>
+    <section class="panel">
+      <h2>Home vs. Away Record</h2>
+      <p class="note">Wins and losses split by venue.</p>
+      <div class="chartwrap"><canvas id="homeAwayChart"></canvas></div>
+    </section>
+    <section class="panel">
+      <h2>Game Log</h2>
+      <p class="note">Every game this team played this season.</p>
+      <div class="logscroll"><table id="logTable"><thead><tr><th>Date</th><th>Opp</th><th>Score</th><th>Result</th></tr></thead><tbody></tbody></table></div>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// This version pulls live data from the database via the api/ endpoints
+// instead of an embedded JSON blob.
+
+async function fetchJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+const colors = { ball:"#e8641b", hardwood:"#c98a3d", muted:"#8ca0b8", grid:"rgba(237,234,224,.08)", win:"#3fb27f", loss:"#e2555a", chalk:"#edeae0" };
+Chart.defaults.color = colors.muted;
+Chart.defaults.font.family = "Inter, sans-serif";
+
+const seasonSel = document.getElementById("season");
+const teamSel = document.getElementById("team");
+let charts = {};
+
+function destroyAll(){ Object.values(charts).forEach(c=>c && c.destroy()); charts = {}; }
+
+async function populateSeasons(){
+  const seasons = await fetchJSON("api/seasons.php"); // [{season: 2026}, {season: 2025}, ...]
+  seasonSel.innerHTML = seasons.map(s=>`<option value="${s.season}">${s.season}</option>`).join("");
+}
+
+async function populateTeams(season){
+  const teams = await fetchJSON(`api/teams_by_season.php?season=${season}`); // [{team_id, team_name}, ...]
+  teamSel.innerHTML = teams.map(t=>`<option value="${t.team_id}">${t.team_name}</option>`).join("");
+}
+
+function renderKpis(rec){
+  const el = document.getElementById("kpis");
+  const items = [
+    [`${rec.wins}-${rec.losses}`, "Record"],
+    [`${rec.win_pct}%`, "Win rate"],
+    [rec.ppg, "Pts/game"],
+    [rec.papg, "Opp pts/game"],
+    [rec.reb, "Rebounds/game"],
+    [rec.ast, "Assists/game"],
+    [rec.tov, "Turnovers/game"],
+  ];
+  el.innerHTML = items.map(([v,l])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+}
+
+function renderScoreChart(rec){
+  const ctx = document.getElementById("scoreChart");
+  charts.score = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: rec.games_log.map(g=>g.date),
+      datasets: [
+        { label:"Points for", data: rec.games_log.map(g=>g.pf), borderColor: colors.ball, backgroundColor:"rgba(232,100,27,.15)", fill:true, tension:.25 },
+        { label:"Points against", data: rec.games_log.map(g=>g.pa), borderColor: colors.muted, backgroundColor:"rgba(140,160,184,.08)", fill:true, tension:.25 }
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales:{ y:{grid:{color:colors.grid},beginAtZero:true}, x:{grid:{display:false},ticks:{color:colors.chalk,maxRotation:0,autoSkip:true}} }
+    }
+  });
+}
+
+function renderShootChart(rec){
+  const ctx = document.getElementById("shootChart");
+  charts.shoot = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: ["FG%","3PT%","FT%"],
+      datasets: [{ data:[rec.fg_pct, rec.three_pct, rec.ft_pct], backgroundColor:[colors.ball, colors.hardwood, colors.win] }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+      scales:{ y:{grid:{color:colors.grid},beginAtZero:true,max:100}, x:{grid:{display:false},ticks:{color:colors.chalk}} }
+    }
+  });
+}
+
+function renderHomeAwayChart(rec){
+  const ctx = document.getElementById("homeAwayChart");
+  const [hw,hl] = rec.home_record.split("-").map(Number);
+  const [aw,al] = rec.away_record.split("-").map(Number);
+  charts.homeAway = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: ["Home","Away"],
+      datasets: [
+        { label:"Wins", data:[hw,aw], backgroundColor: colors.win },
+        { label:"Losses", data:[hl,al], backgroundColor: colors.loss }
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales:{ y:{grid:{color:colors.grid},beginAtZero:true,stacked:true}, x:{grid:{display:false},ticks:{color:colors.chalk},stacked:true} }
+    }
+  });
+}
+
+function renderLog(rec){
+  const tbody = document.querySelector("#logTable tbody");
+  tbody.innerHTML = rec.games_log.map(g=>`
+    <tr>
+      <td>${g.date}${g.home ? "" : " @"}</td>
+      <td>${g.opp}</td>
+      <td>${g.pf}-${g.pa}</td>
+      <td><span class="pill ${g.win?'w':'l'}">${g.win?'W':'L'}</span></td>
+    </tr>`).join("");
+}
+
+async function render(){
+  const season = seasonSel.value;
+  const teamId = teamSel.value;
+  if (!season || !teamId) return;
+
+  let rec;
+  try {
+    rec = await fetchJSON(`api/team_season.php?team_id=${teamId}&season=${season}`);
+  } catch (err) {
+    console.error("Error loading team season data:", err);
+    return;
+  }
+  if (!rec) return;
+
+  destroyAll();
+  renderKpis(rec);
+  renderScoreChart(rec);
+  renderShootChart(rec);
+  renderHomeAwayChart(rec);
+  renderLog(rec);
+}
+
+seasonSel.addEventListener("change", async ()=>{ await populateTeams(seasonSel.value); render(); });
+teamSel.addEventListener("change", render);
+
+(async () => {
+  await populateSeasons();
+  await populateTeams(seasonSel.value);
+  render();
+})();
+</script>
+</body>
+</html>
